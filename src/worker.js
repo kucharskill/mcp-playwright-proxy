@@ -1,0 +1,55 @@
+import { Instances } from './instances.js';
+import { serve, textResult } from './server.js';
+import { milliseconds, log } from './meta.js';
+import { pathToFileURL } from 'node:url';
+export async function startWorker() {
+  let handle;
+  let manifest;
+  let loading;
+  let timer;
+  let active = 0;
+  let closing = false;
+  const retention = milliseconds('PW_PROXY_WORKER_IDLE_MS', 60000);
+  const arm = () => {
+    clearTimeout(timer);
+    if (!closing && !active && !instances.hasLive() && retention) timer = setTimeout(() => {
+      log({ event: 'worker-idle-expired' });
+      void handle.shutdown();
+    }, retention);
+  };
+  const changed = () => {
+    manifest = undefined;
+    void handle?.server.sendToolListChanged().catch(() => {});
+  };
+  const roots = async () => {
+    if (!handle.server.getClientCapabilities()?.roots) return { roots: [{ uri: pathToFileURL(process.cwd()).href, name: 'workspace' }] };
+    return handle.server.listRoots();
+  };
+  const instances = new Instances({ roots, changed, stateChanged: arm });
+  const during = async operation => {
+    active++; clearTimeout(timer);
+    try { return await operation(); }
+    finally { active--; arm(); }
+  };
+  handle = await serve({
+    list: () => during(async () => {
+      if (manifest) return manifest;
+      loading ??= instances.manifest().then(value => manifest = value).finally(() => loading = undefined);
+      return loading;
+    }),
+    call: params => during(async () => {
+      const args = params.arguments ?? {};
+      switch (params.name) {
+        case 'browser_instance_start': return textResult(await instances.start(args));
+        case 'browser_instance_list': return textResult(instances.list());
+        case 'browser_instance_stop': return textResult(await instances.stop(args.instanceId));
+        default: return instances.call(params.name, args);
+      }
+    }),
+    close: async () => { closing = true; clearTimeout(timer); await instances.close(); },
+    rootsChanged: () => {
+      for (const item of instances.items.values()) void item.connection?.client.sendRootsListChanged().catch(() => {});
+    },
+  });
+  arm();
+}

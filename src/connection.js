@@ -1,0 +1,43 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { fileURLToPath } from 'node:url';
+import { createJob } from './job.js';
+import { info, milliseconds } from './meta.js';
+
+class OwnedTransport extends StdioClientTransport {
+  async start() {
+    this.job = this.protect ? await createJob() : undefined;
+    try {
+      await super.start();
+      this.job?.assign(this.pid);
+      await this.send({ jsonrpc: '2.0', method: 'proxy/gate' });
+    } catch (error) { await this.close(); throw error; }
+  }
+  async close() {
+    try { await super.close(); } finally { this.job?.close(); }
+  }
+}
+
+export async function connect(args, { cwd = process.cwd(), protect = true, roots, changed, disconnected, env = process.env } = {}) {
+  const transport = new OwnedTransport({
+    command: process.execPath, args: [fileURLToPath(new URL('./host.js', import.meta.url))],
+    cwd, env: { ...env, PW_PROXY_HOST: JSON.stringify({ args, cwd, protect }) }, stderr: 'inherit',
+  });
+  transport.protect = protect;
+  const client = new Client(info, { capabilities: { roots: { listChanged: true } } });
+  client.setRequestHandler(ListRootsRequestSchema, () => roots?.() ?? { roots: [] });
+  // Notifications are registered below using their protocol schemas.
+  const { ToolListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => changed?.());
+  client.onclose = () => disconnected?.();
+  try { await client.connect(transport, { timeout: milliseconds('PW_PROXY_STARTUP_MS', 180000) }); }
+  catch (error) { await transport.close(); throw error; }
+  return {
+    client, pid: transport.pid,
+    list: () => client.listTools({}, { timeout: milliseconds('PW_PROXY_REQUEST_MS', 180000) }),
+    // No protocol timeout here: a client timeout must not release active execution.
+    call: params => client.callTool(params, undefined, { timeout: 2147483647, maxTotalTimeout: 2147483647 }),
+    close: () => client.close(),
+  };
+}
