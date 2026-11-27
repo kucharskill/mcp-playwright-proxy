@@ -77,14 +77,17 @@ export class Instances {
       else this.arm(item);
     });
   }
-  stop(id, reason = 'explicit-stop') {
+  stop(id, reason = 'explicit-stop', force = false) {
     const item = this.items.get(id);
     if (!item) throw new Error('Unknown instanceId');
-    if (item.stopPromise) return item.stopPromise;
+    if (item.stopPromise) {
+      if (force) void item.connection?.close();
+      return item.stopPromise;
+    }
     if (item.state === 'closed') return Promise.resolve(this.describe(item));
     item.state = 'closing'; clearTimeout(item.timer); item.expiresAt = null;
     item.stopPromise = (async () => {
-      await item.queue;
+      if (!force) await item.queue;
       try { await item.connection?.close(); }
       finally {
         item.state = 'closed'; item.reason = reason;

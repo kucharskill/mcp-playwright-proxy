@@ -55,6 +55,7 @@ The proxy forwards upstream tool schemas and results, adding required `instanceI
 - Without live instances or active requests the worker exits after one minute. A future request starts a current worker.
 - Each executor has one queue and one inactivity timer. Running and queued operations prevent idle shutdown.
 - Closed IDs never silently recreate browser state. Start a new instance after expiry.
+- Use `browser_instance_stop({instanceId, force: true})` to interrupt stuck work instead of waiting for the queue to drain.
 - Client response timeout does not prove execution ended. The proxy does not replay operations.
 - Disconnecting the client closes owned executors. Windows launch executors use parent-owned, kill-on-close Job Objects and a startup gate. Extension executors are deliberately outside those Jobs to preserve the user's browser; the owned Node executor is stopped directly.
 - Graceful shutdown is bounded by the stdio transport's termination sequence. Browser work can be interrupted on client disconnect or process failure. Idle and explicit stop normally drain queued work.

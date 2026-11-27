@@ -42,7 +42,7 @@ export async function startWorker() {
       switch (params.name) {
         case 'browser_instance_start': return textResult(await instances.start(args));
         case 'browser_instance_list': return textResult(instances.list());
-        case 'browser_instance_stop': return textResult(await instances.stop(args.instanceId));
+        case 'browser_instance_stop': return textResult(await instances.stop(args.instanceId, args.force ? 'forced-stop' : 'explicit-stop', args.force === true));
         default: return instances.call(params.name, args);
       }
     }),

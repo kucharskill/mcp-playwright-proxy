@@ -98,3 +98,17 @@ test('shutdown during startup closes the late connection', async () => {
   await assert.rejects(start, /closed during startup/);
   assert.equal(connections[0].closed, true);
 });
+test('forced stop interrupts work without waiting for the queue', async () => {
+  const { manager, connections } = fixture();
+  const a = await manager.start({ idleTimeoutMs: 0 });
+  let rejectCall;
+  connections[0].call = () => new Promise((_resolve, reject) => { rejectCall = reject; });
+  connections[0].close = async () => { rejectCall(new Error('connection closed')); };
+  const work = manager.call('hung', { instanceId: a.instanceId });
+  const rejected = assert.rejects(work, /connection closed/);
+  await sleep(1);
+  const stopped = await manager.stop(a.instanceId, 'forced-stop', true);
+  await rejected;
+  assert.equal(stopped.state, 'closed');
+  assert.equal(stopped.reason, 'forced-stop');
+});

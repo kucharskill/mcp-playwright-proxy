@@ -28,3 +28,4 @@ jobs:
           mkdir -p .tmp/installed
           npm install --prefix .tmp/installed --ignore-scripts "./.tmp/releases/$(node -p 'require("./.tmp/releases/archive.json").filename')"
           node scripts/smoke.mjs .tmp/installed/node_modules/mcp-playwright-proxy/src/cli.js
+          node scripts/lifecycle-smoke.mjs .tmp/installed/node_modules/mcp-playwright-proxy/src/cli.js

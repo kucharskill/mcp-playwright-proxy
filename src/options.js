@@ -30,7 +30,7 @@ export function upstreamArgs(input, cwd) {
 export const controls = [
   { name: 'browser_instance_start', description: 'Start an independently configured Playwright MCP executor. Returns instanceId. Reuse that ID for browser operations. Extension mode attaches to an existing user browser.', inputSchema: z.toJSONSchema(optionsSchema, { unrepresentable: 'any', io: 'input' }) },
   { name: 'browser_instance_list', description: 'List live and recently closed browser instances without extending their lifetime.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'browser_instance_stop', description: 'Close an instance after queued operations finish. Extension mode disconnects without closing the user browser.', inputSchema: { type: 'object', properties: { instanceId: { type: 'string' } }, required: ['instanceId'], additionalProperties: false } },
+  { name: 'browser_instance_stop', description: 'Close an instance after queued operations finish. Use force:true to interrupt stuck work. Extension mode disconnects without closing the user browser.', inputSchema: { type: 'object', properties: { instanceId: { type: 'string' }, force: { type: 'boolean', default: false } }, required: ['instanceId'], additionalProperties: false } },
 ];
 export function withInstance(tool) {
   const schema = tool.inputSchema;
