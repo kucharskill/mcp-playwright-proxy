@@ -4,6 +4,7 @@ import { connect } from './connection.js';
 import { resolveLatest } from './resolve.js';
 import { metadata, milliseconds, log } from './meta.js';
 import { DiscoveryCache } from './discovery-cache.js';
+import { dumpStartupEnvironment } from './env-startup.js';
 
 export function runnerMode(env = process.env) {
   const explicit = env.PW_PROXY_RUNNER;
@@ -16,6 +17,7 @@ export function workerTarget(mode, env = process.env, cwd = process.cwd()) {
     args: mode === 'latest' ? ['-y', '--prefer-online', `${metadata.name}@latest`, '--worker'] : [fileURLToPath(new URL('./cli.js', import.meta.url)), '--worker'], cwd, env };
 }
 export async function startAdapter({ mode = runnerMode(), target = workerTarget(mode), open = connect } = {}) {
+  await dumpStartupEnvironment();
   let handle;
   let current;
   let starting;

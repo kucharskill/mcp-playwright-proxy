@@ -64,6 +64,8 @@ The proxy forwards upstream tool schemas and results, adding required `instanceI
 
 ## Development
 
+Each MCP adapter startup appends one local JSONL record `{pid, startedAt, env}` to `env-startup.jsonl` beside the shared discovery cache. This is the original wrapper environment, including values and potentially credentials, for comparing replica startup environments. Discovery, pings, tool calls and worker restarts do not append records. The write is best-effort; a diagnostic failure does not prevent MCP startup. New directories/files use modes 0700/0600 where supported (Windows inherits user TEMP ACLs). The dump is local only: do not commit, publish or share its contents. There are no fingerprint files, event logs or rotation mechanisms.
+
 ```sh
 npm ci
 node src/cli.js

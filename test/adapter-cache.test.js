@@ -59,6 +59,9 @@ test('a second process initializes and lists from the shared cache; real calls s
   const result = await second.client.callTool({ name: 'fixture_tool', arguments: {} });
   assert.equal(JSON.parse(result.content[0].text).callId, 'two');
   assert.equal((await s.events()).filter(x => x.event === 'start').length, 2);
+  const startup = (await readFile(resolve(s.dir, 'cache', 'env-startup.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(startup.length, 2, 'Only adapter startup, not discovery/ping/tool calls, may append evidence');
+  assert.deepEqual(startup.map(x => x.env.CODEX_TOOL_CALL_ID), ['one', 'two']);
 });
 test('the internal host gate preserves an incoming variable of the same name', async t => {
   const s = await setup(t); const { client } = await s.open({ PW_PROXY_HOST: 'original-user-value' });
