@@ -6,7 +6,7 @@ export async function resolveLatest(name) {
   const job = await createJob();
   return new Promise((resolve, reject) => {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_(package|call)$/i.test(key)));
-    const launch = { command: 'npx', protect: true, args: ['-y', '--prefer-online', `--package=${name}@latest`, '--', 'node', fileURLToPath(new URL('./resolve-entry.js', import.meta.url)), name] };
+    const launch = { command: 'npx', protect: true, originalHostEnv: env.PW_PROXY_HOST, args: ['-y', '--prefer-online', `--package=${name}@latest`, '--', 'node', fileURLToPath(new URL('./resolve-entry.js', import.meta.url)), name] };
     const child = spawn(process.execPath, [fileURLToPath(new URL('./host.js', import.meta.url))], { env: { ...env, PW_PROXY_HOST: JSON.stringify(launch) }, windowsHide: true, stdio: ['pipe', 'pipe', 'inherit'] });
     let output = '';
     let settled = false;

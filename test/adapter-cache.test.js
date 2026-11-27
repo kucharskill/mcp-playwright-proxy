@@ -1,0 +1,107 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+async function setup(t) {
+  const dir = resolve('.tmp', `adapter-test-${randomUUID()}`);
+  await mkdir(dir, { recursive: true });
+  const file = resolve(dir, 'config.json');
+  const events = resolve(dir, 'events.jsonl');
+  await writeFile(events, '');
+  await writeFile(file, JSON.stringify({ events, version: '1', tool: 'fixture_tool' }));
+  const env = { ...process.env, PW_FIXTURE_CONFIG: file, PW_PROXY_DISCOVERY_CACHE_DIR: resolve(dir, 'cache') };
+  const connections = [];
+  t.after(async () => { for (const close of connections) await close(); await rm(dir, { recursive: true, force: true }); });
+  return { dir, file, events: async () => (await readFile(events, 'utf8')).split('\n').filter(Boolean).map(JSON.parse),
+    open: async extra => {
+      const transport = new StdioClientTransport({ command: process.execPath, args: [resolve('test/adapter-fixture.js')], env: { ...env, ...extra }, stderr: 'pipe' });
+      const client = new Client({ name: 'cache-test', version: '1' });
+      connections.push(() => client.close());
+      let errors = ''; transport.stderr.on('data', c => errors += c);
+      await client.connect(transport); return { client, errors: () => errors };
+    }, env, connections };
+}
+test('legacy init and ping are answered locally with no worker or cache load', async t => {
+  const setup_ = await setup(t);
+  const child = spawn(process.execPath, [resolve('test/adapter-fixture.js')], { env: setup_.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  setup_.connections.push(async () => { child.stdin.end(); });
+  const pending = new Map(); let next = 0;
+  const lines = createInterface({ input: child.stdout });
+  lines.on('line', line => { const response = JSON.parse(line); pending.get(response.id)?.(response); pending.delete(response.id); });
+  const rpc = (method, params) => new Promise(resolve => { const id = ++next; pending.set(id, resolve); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); });
+  const init = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'legacy-test', version: '1' } });
+  assert.equal(init.result.protocolVersion, '2024-11-05');
+  assert.deepEqual(init.result.capabilities, { tools: { listChanged: true } });
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  assert.deepEqual((await rpc('ping', {})).result, {});
+  assert.deepEqual(await setup_.events(), []);
+  child.stdin.end();
+  await new Promise(resolve => child.once('exit', resolve));
+});
+test('a second process initializes and lists from the shared cache; real calls still start worker with original env', async t => {
+  const s = await setup(t);
+  const first = await s.open({ CODEX_TOOL_CALL_ID: 'one' });
+  const catalog = await first.client.listTools();
+  assert.equal(catalog.tools[0].description, 'Fixture discovery metadata');
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
+  await first.client.close();
+  const second = await s.open({ CODEX_TOOL_CALL_ID: 'two' });
+  assert.deepEqual(await second.client.listTools(), catalog);
+  assert.deepEqual(await second.client.ping(), {});
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
+  const result = await second.client.callTool({ name: 'fixture_tool', arguments: {} });
+  assert.equal(JSON.parse(result.content[0].text).callId, 'two');
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 2);
+});
+test('the internal host gate preserves an incoming variable of the same name', async t => {
+  const s = await setup(t); const { client } = await s.open({ PW_PROXY_HOST: 'original-user-value' });
+  const result = await client.callTool({ name: 'fixture_tool', arguments: {} });
+  assert.equal(JSON.parse(result.content[0].text).hostEnv, 'original-user-value');
+});
+test('warm discovery and ping do not postpone worker idle', async t => {
+  const s = await setup(t); const { client } = await s.open();
+  await client.listTools();
+  for (let i = 0; i < 5; i++) { await sleep(250); await client.ping(); await client.listTools(); }
+  assert.equal((await s.events()).filter(x => x.event === 'idle').length, 1);
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
+});
+test('list_changed invalidates other replicas and publishes the new catalog', async t => {
+  const s = await setup(t); const first = await s.open();
+  await first.client.listTools(); const second = await s.open();
+  await second.client.listTools();
+  await first.client.callTool({ name: 'update', arguments: {} });
+  let result;
+  for (let i = 0; i < 20; i++) { result = await second.client.listTools(); if (result.tools[0].name === 'updated_tool') break; await sleep(25); }
+  assert.equal(result.tools[0].name, 'updated_tool');
+});
+test('a changed backend identity discovered by a real call invalidates the file', async t => {
+  const s = await setup(t); const first = await s.open();
+  await first.client.listTools(); await first.client.close();
+  const config = JSON.parse(await readFile(s.file, 'utf8'));
+  await writeFile(s.file, JSON.stringify({ ...config, version: '2', tool: 'version_two' }));
+  const second = await s.open();
+  assert.equal((await second.client.listTools()).tools[0].name, 'fixture_tool');
+  await second.client.callTool({ name: 'fixture_tool', arguments: {} });
+  assert.equal((await second.client.listTools()).tools[0].name, 'version_two');
+});
+test('caller cancellation does not replay or pretend backend work finished', async t => {
+  const s = await setup(t); const { client } = await s.open(); await client.listTools();
+  const abort = new AbortController();
+  const work = client.callTool({ name: 'fixture_tool', arguments: { delay: 300 } }, undefined, { signal: abort.signal });
+  const rejected = assert.rejects(work);
+  for (let i = 0; i < 40 && !(await s.events()).some(x => x.event === 'call'); i++) await sleep(10);
+  abort.abort(); await rejected;
+  assert.equal((await s.events()).filter(x => x.event === 'finished').length, 0);
+  for (let i = 0; i < 40 && !(await s.events()).some(x => x.event === 'finished'); i++) await sleep(20);
+  const events = await s.events();
+  assert.equal(events.filter(x => x.event === 'call').length, 1);
+  assert.equal(events.filter(x => x.event === 'finished').length, 1);
+  assert.deepEqual(await client.ping(), {});
+});

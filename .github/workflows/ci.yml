@@ -27,5 +27,6 @@ jobs:
         run: |
           mkdir -p .tmp/installed
           npm install --prefix .tmp/installed --ignore-scripts "./.tmp/releases/$(node -p 'require("./.tmp/releases/archive.json").filename')"
+          PW_TEST_PACKAGE=.tmp/installed/node_modules/mcp-playwright-proxy node --test test/adapter-cache.test.js
           node scripts/smoke.mjs .tmp/installed/node_modules/mcp-playwright-proxy/src/cli.js
           node scripts/lifecycle-smoke.mjs .tmp/installed/node_modules/mcp-playwright-proxy/src/cli.js

@@ -1,7 +1,8 @@
 // Only fixed Node entry points reach this host. Arguments never pass through a shell.
 import spawn from 'cross-spawn';
 const launch = JSON.parse(process.env.PW_PROXY_HOST);
-delete process.env.PW_PROXY_HOST;
+if (launch.originalHostEnv === undefined) delete process.env.PW_PROXY_HOST;
+else process.env.PW_PROXY_HOST = launch.originalHostEnv;
 let buffer = Buffer.alloc(0);
 let child;
 let ending = false;

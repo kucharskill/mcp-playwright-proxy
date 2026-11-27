@@ -22,9 +22,11 @@ class OwnedTransport extends StdioClientTransport {
 export async function connect(args, { cwd = process.cwd(), protect = true, roots, changed, disconnected, env = process.env } = {}) {
   const transport = new OwnedTransport({
     command: process.execPath, args: [fileURLToPath(new URL('./host.js', import.meta.url))],
-    cwd, env: { ...env, PW_PROXY_HOST: JSON.stringify({ args, cwd, protect }) }, stderr: 'inherit',
+    cwd, env: { ...env, PW_PROXY_HOST: JSON.stringify({ args, cwd, protect, originalHostEnv: env.PW_PROXY_HOST }) }, stderr: 'inherit',
   });
   transport.protect = protect;
+  let protocolVersion;
+  transport.setProtocolVersion = version => { protocolVersion = version; };
   const client = new Client(info, { capabilities: { roots: { listChanged: true } } });
   client.setRequestHandler(ListRootsRequestSchema, () => roots?.() ?? { roots: [] });
   // Notifications are registered below using their protocol schemas.
@@ -35,7 +37,21 @@ export async function connect(args, { cwd = process.cwd(), protect = true, roots
   catch (error) { await transport.close(); throw error; }
   return {
     client, pid: transport.pid,
-    list: () => client.listTools({}, { timeout: milliseconds('PW_PROXY_REQUEST_MS', 180000) }),
+    identity: () => ({ protocolVersion, serverInfo: client.getServerVersion(), capabilities: client.getServerCapabilities(),
+      ...(client.getInstructions() ? { instructions: client.getInstructions() } : {}) }),
+    list: async () => {
+      const tools = [];
+      const seen = new Set();
+      let cursor;
+      do {
+        const page = await client.listTools(cursor ? { cursor } : {}, { timeout: milliseconds('PW_PROXY_REQUEST_MS', 180000) });
+        tools.push(...page.tools);
+        cursor = page.nextCursor;
+        if (cursor && seen.has(cursor)) throw new Error('Repeated discovery cursor');
+        seen.add(cursor);
+      } while (cursor);
+      return { tools };
+    },
     // No protocol timeout here: a client timeout must not release active execution.
     call: params => client.callTool(params, undefined, { timeout: 2147483647, maxTotalTimeout: 2147483647 }),
     close: () => client.close(),

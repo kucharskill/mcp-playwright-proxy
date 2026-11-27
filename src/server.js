@@ -4,6 +4,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { info } from './meta.js';
 export const textResult = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
 export async function serve({ list, call, close, rootsChanged }) {
+  // SDK 1.x handles initialize and legacy ping locally. Neither touches the worker.
+  // Advertise only this tools facade, not unsupported cached upstream capabilities.
   const server = new Server(info, { capabilities: { tools: { listChanged: true } } });
   server.setRequestHandler(ListToolsRequestSchema, list);
   server.setRequestHandler(CallToolRequestSchema, async request => {

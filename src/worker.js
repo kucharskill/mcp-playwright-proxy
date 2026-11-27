@@ -2,7 +2,7 @@ import { Instances } from './instances.js';
 import { serve, textResult } from './server.js';
 import { milliseconds, log } from './meta.js';
 import { pathToFileURL } from 'node:url';
-export async function startWorker() {
+export async function startWorker({ createInstances = options => new Instances(options) } = {}) {
   let handle;
   let manifest;
   let loading;
@@ -10,12 +10,14 @@ export async function startWorker() {
   let active = 0;
   let closing = false;
   const retention = milliseconds('PW_PROXY_WORKER_IDLE_MS', 60000);
+  const toolRetention = milliseconds('PW_PROXY_WORKER_TOOL_IDLE_MS', 1800000);
+  let expiresAt = Date.now() + retention;
   const arm = () => {
     clearTimeout(timer);
     if (!closing && !active && !instances.hasLive() && retention) timer = setTimeout(() => {
       log({ event: 'worker-idle-expired' });
       void handle.shutdown();
-    }, retention);
+    }, Math.max(0, expiresAt - Date.now()));
   };
   const changed = () => {
     manifest = undefined;
@@ -25,11 +27,11 @@ export async function startWorker() {
     if (!handle.server.getClientCapabilities()?.roots) return { roots: [{ uri: pathToFileURL(process.cwd()).href, name: 'workspace' }] };
     return handle.server.listRoots();
   };
-  const instances = new Instances({ roots, changed, stateChanged: arm });
-  const during = async operation => {
+  const instances = createInstances({ roots, changed, stateChanged: arm });
+  const during = async (operation, keepMs = retention) => {
     active++; clearTimeout(timer);
     try { return await operation(); }
-    finally { active--; arm(); }
+    finally { active--; expiresAt = Math.max(expiresAt, Date.now() + keepMs); arm(); }
   };
   handle = await serve({
     list: () => during(async () => {
@@ -45,7 +47,7 @@ export async function startWorker() {
         case 'browser_instance_stop': return textResult(await instances.stop(args.instanceId, args.force ? 'forced-stop' : 'explicit-stop', args.force === true));
         default: return instances.call(params.name, args);
       }
-    }),
+    }, toolRetention),
     close: async () => { closing = true; clearTimeout(timer); await instances.close(); },
     rootsChanged: () => {
       for (const item of instances.items.values()) void item.connection?.client.sendRootsListChanged().catch(() => {});
