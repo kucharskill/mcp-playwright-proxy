@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 async function setup(t) {
   const dir = resolve('.tmp', `adapter-test-${randomUUID()}`);
@@ -25,7 +26,7 @@ async function setup(t) {
       const client = new Client({ name: 'cache-test', version: '1' });
       connections.push(() => client.close());
       let errors = ''; transport.stderr.on('data', c => errors += c);
-      await client.connect(transport); return { client, errors: () => errors };
+      await client.connect(transport); return { client, transport, errors: () => errors };
     }, env, connections };
 }
 test('legacy init and ping are answered locally with no worker or cache load', async t => {
@@ -41,9 +42,60 @@ test('legacy init and ping are answered locally with no worker or cache load', a
   assert.deepEqual(init.result.capabilities, { tools: { listChanged: true } });
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   assert.deepEqual((await rpc('ping', {})).result, {});
+  for (const method of ['prompts/list', 'resources/list', 'resources/templates/list']) assert.equal((await rpc(method, {})).error.code, -32601);
   assert.deepEqual(await setup_.events(), []);
   child.stdin.end();
   await new Promise(resolve => child.once('exit', resolve));
+});
+test('SDK client receives the complete extended public result unchanged on cold/warm replicas despite ttlMs zero', async t => {
+  const s = await setup(t);
+  const fields = { ttlMs: 0, cacheScope: 'session', resultType: 'catalog', _meta: { 'fixture/vendor': { stable: true } }, futureField: { unknown: ['preserved'] } };
+  const config = JSON.parse(await readFile(s.file, 'utf8'));
+  await writeFile(s.file, JSON.stringify({ ...config, resultFields: fields, extraAnnotations: { vendorHint: 'keep' }, extraToolFields: { vendorExtension: { keep: true } } }));
+  const first = await s.open({ PW_TEST_EXTENDED_WORKER: '1' });
+  const cold = await first.client.request({ method: 'tools/list' }, ResultSchema);
+  assert.ok(ListToolsResultSchema.safeParse(cold).success);
+  for (const [name, value] of Object.entries(fields)) assert.deepEqual(cold[name], value);
+  assert.deepEqual(cold.tools.slice(0, 3).map(x => x.name), ['browser_instance_start', 'browser_instance_list', 'browser_instance_stop']);
+  const upstream = cold.tools[3];
+  assert.equal(upstream.annotations.vendorHint, 'keep');
+  assert.deepEqual(upstream.vendorExtension, { keep: true });
+  assert.ok(upstream.inputSchema.required.includes('instanceId'));
+  const sdkCold = await first.client.listTools();
+  await first.client.close();
+  const second = await s.open({ PW_TEST_EXTENDED_WORKER: '1' });
+  await second.client.ping(); await second.client.ping();
+  let sentId; let receivedId;
+  const send = second.transport.send.bind(second.transport);
+  second.transport.send = request => { if (request.method === 'tools/list') sentId = request.id; return send(request); };
+  const receive = second.transport.onmessage;
+  second.transport.onmessage = response => { if (response.result?.tools) receivedId = response.id; receive(response); };
+  const warm = await second.client.request({ method: 'tools/list' }, ResultSchema);
+  assert.deepEqual(warm, cold);
+  assert.equal(receivedId, sentId);
+  assert.deepEqual(await second.client.listTools(), sdkCold);
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
+  const names = (await readdir(resolve(s.dir, 'cache'))).filter(x => x.endsWith('.json'));
+  assert.equal(names.length, 1);
+  const cached = JSON.parse(await readFile(resolve(s.dir, 'cache', names[0]), 'utf8'));
+  assert.equal(cached.format, 2);
+  assert.equal(cached.expiresAt - cached.writtenAt, 600000);
+  assert.deepEqual(cached.manifest, cold);
+});
+test('scoped result identifiers are returned intact but skip disk and worker catalog caches', async t => {
+  for (const fields of [{ _meta: { sessionId: 'fixture-session' } }, { _meta: { progressToken: 'fixture-progress' } }, { taskId: 'fixture-task' }]) {
+    const s = await setup(t);
+    const config = JSON.parse(await readFile(s.file, 'utf8'));
+    await writeFile(s.file, JSON.stringify({ ...config, resultFields: fields }));
+    const { client } = await s.open({ PW_TEST_EXTENDED_WORKER: '1' });
+    for (let i = 0; i < 2; i++) {
+      const result = await client.request({ method: 'tools/list' }, ResultSchema);
+      for (const [key, value] of Object.entries(fields)) assert.deepEqual(result[key], value);
+    }
+    await Promise.all([client.request({ method: 'tools/list' }, ResultSchema), client.request({ method: 'tools/list' }, ResultSchema)]);
+    assert.equal((await s.events()).filter(x => x.event === 'list').length, 4);
+    assert.equal((await readdir(resolve(s.dir, 'cache'))).filter(x => x.endsWith('.json')).length, 0);
+  }
 });
 test('a second process initializes and lists from the shared cache; real calls still start worker with original env', async t => {
   const s = await setup(t);

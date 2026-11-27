@@ -22,7 +22,7 @@ export class Instances {
     try {
       const result = await connection.list();
       this.catalogVersion = version;
-      return { tools: [...controls, ...result.tools.map(withInstance)] };
+      return { ...result, tools: [...controls, ...result.tools.map(withInstance)] };
     } finally { await connection.close(); }
   }
   async start(input) {

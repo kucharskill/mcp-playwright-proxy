@@ -40,8 +40,8 @@ test('cold writes complete metadata; a new cache object reads it without its loa
 test('PATH and INIT_/NPM_ families are ignored case-insensitively only in the key', () => {
   for (const platform of ['win32', 'linux']) {
     const key = env => invocationKey({ ...target, env: { ...target.env, ...env } }, { platform });
-    const first = { PATH: 'one', INIT_CWD: 'one', INIT_OTHER: 'one', npm_config_local_prefix: 'one', npm_package_json: 'one', NPM_OTHER: 'one' };
-    const second = { pAtH: 'two', iNiT_cWd: 'two', init_OTHER: 'two', NpM_CONFIG_local_PREFIX: 'two', Npm_Package_Json: 'two', nPm_OTHER: 'two' };
+    const first = { PATH: 'one', INIT_CWD: 'one', INIT_OTHER: 'one', npm_config_local_prefix: 'one', npm_package_json: 'one', NPM_OTHER: 'one', CODEX_TOOL_CALL_ID: 'one' };
+    const second = { pAtH: 'two', iNiT_cWd: 'two', init_OTHER: 'two', NpM_CONFIG_local_PREFIX: 'two', Npm_Package_Json: 'two', nPm_OTHER: 'two', codex_tool_call_id: 'two' };
     assert.equal(key(first), key(second));
     assert.equal(key(first), key({}));
     for (const name of ['API_KEY', 'PATH_SUFFIX', 'INIT', 'NPM', 'MY_INIT_VALUE']) assert.notEqual(key({ [name]: 'changed' }), key({}));
@@ -51,7 +51,7 @@ test('TTL, old format, corrupt JSON, malformed schemas and unsupported protocol 
   let now = 1000;
   const { cache, calls } = await setup(t, { now: () => now, ttlMs: 50 });
   await cache.get(); now = 1050; await cache.get(); assert.equal(calls(), 2);
-  for (const raw of ['{broken', JSON.stringify({ format: 0 }), JSON.stringify({ format: 1, key: cache.key, writtenAt: now, expiresAt: now + 50, ...payload('1'), manifest: { tools: 'wrong' } }), JSON.stringify({ format: 1, key: cache.key, writtenAt: now, expiresAt: now + 50, ...payload('1'), identity: { ...payload('1').identity, protocolVersion: 'unsupported' } })]) {
+  for (const raw of ['{broken', JSON.stringify({ format: 0 }), JSON.stringify({ format: 1, key: cache.key, writtenAt: now, expiresAt: now + 50, ...payload('1') }), JSON.stringify({ format: 2, key: cache.key, writtenAt: now, expiresAt: now + 50, ...payload('1'), manifest: { tools: 'wrong' } }), JSON.stringify({ format: 2, key: cache.key, writtenAt: now, expiresAt: now + 50, ...payload('1'), identity: { ...payload('1').identity, protocolVersion: 'unsupported' } })]) {
     await writeFile(cache.path, raw); const before = calls(); await cache.get(); assert.equal(calls(), before + 1);
   }
 });
@@ -64,6 +64,21 @@ test('cache hits preserve the fixed expiry and the default TTL is ten minutes', 
   now = 5000; await cache.get();
   assert.equal(await readFile(cache.path, 'utf8'), first);
   assert.equal(calls(), 1);
+});
+test('local ten-minute expiry ignores upstream ttlMs zero and preserves the whole result', async t => {
+  let now = 1000;
+  let calls = 0;
+  const result = { ...payload('1'), manifest: { ...payload('1').manifest, ttlMs: 0, cacheScope: 'session', resultType: 'tools/list', _meta: { vendor: true }, unknown: { retained: 1 } } };
+  const { cache } = await setup(t, { now: () => now, load: async () => { calls++; return result; } });
+  const cold = await cache.get(); now += 599999;
+  assert.deepEqual(await cache.get(), cold); assert.deepEqual(cold, result.manifest); assert.equal(calls, 1);
+  now++; await cache.get(); assert.equal(calls, 2);
+});
+test('identifier parameters inside tool schemas are descriptions and remain cacheable', async t => {
+  const result = payload('1');
+  result.manifest.tools[0].inputSchema.properties = { sessionId: { type: 'string' }, progressToken: { type: 'string' } };
+  const { cache, calls } = await setup(t, { load: async () => result });
+  await cache.get(); await cache.get(); assert.equal(cache.fresh(await cache.record()), true);
 });
 test('invalidations and identity changes propagate to another replica', async t => {
   const { cache, directory, calls } = await setup(t);

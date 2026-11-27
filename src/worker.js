@@ -2,6 +2,7 @@ import { Instances } from './instances.js';
 import { serve, textResult } from './server.js';
 import { milliseconds, log } from './meta.js';
 import { pathToFileURL } from 'node:url';
+import { replayableCatalog } from './catalog.js';
 export async function startWorker({ createInstances = options => new Instances(options) } = {}) {
   let handle;
   let manifest;
@@ -33,12 +34,20 @@ export async function startWorker({ createInstances = options => new Instances(o
     try { return await operation(); }
     finally { active--; expiresAt = Math.max(expiresAt, Date.now() + keepMs); arm(); }
   };
+  const catalog = async () => {
+    if (manifest) return manifest;
+    if (loading) {
+      const result = await loading;
+      return replayableCatalog(result) ? result : catalog();
+    }
+    loading = instances.manifest().then(value => {
+      if (replayableCatalog(value)) manifest = value;
+      return value;
+    }).finally(() => loading = undefined);
+    return loading;
+  };
   handle = await serve({
-    list: () => during(async () => {
-      if (manifest) return manifest;
-      loading ??= instances.manifest().then(value => manifest = value).finally(() => loading = undefined);
-      return loading;
-    }),
+    list: () => during(catalog),
     call: params => during(async () => {
       const args = params.arguments ?? {};
       switch (params.name) {

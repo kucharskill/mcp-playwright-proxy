@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { InitializeResultSchema, ListToolsResultSchema, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js';
+import { replayableCatalog } from './catalog.js';
 
 const digest = text => createHash('sha256').update(text).digest('hex');
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
@@ -20,7 +21,7 @@ export function invocationKey({ command, args = [], cwd = process.cwd(), env = p
   // Node selects the first lexically sorted spelling of duplicate Windows names.
   for (const key of Object.keys(env).sort()) {
     const upper = key.toUpperCase();
-    if (upper === 'PATH' || upper.startsWith('INIT_') || upper.startsWith('NPM_')) continue;
+    if (upper === 'CODEX_TOOL_CALL_ID' || upper === 'PATH' || upper.startsWith('INIT_') || upper.startsWith('NPM_')) continue;
     const normalized = name(key);
     if (env[key] !== undefined && !ignored.has(normalized) && !environment.has(normalized)) environment.set(normalized, String(env[key]));
   }
@@ -56,11 +57,11 @@ export class DiscoveryCache {
   fresh(record) {
     const value = record.value;
     const now = this.now();
-    return this.ttlMs > 0 && value?.format === 1 && value.key === this.key
+    return this.ttlMs > 0 && value?.format === 2 && value.key === this.key
       && Number.isSafeInteger(value.writtenAt) && Number.isSafeInteger(value.expiresAt)
       && value.writtenAt <= now && value.expiresAt > now
       && value.expiresAt > value.writtenAt && value.expiresAt - value.writtenAt <= this.ttlMs
-      && validPayload(value);
+      && validPayload(value) && replayableCatalog(value.manifest);
   }
   async locked(operation) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -98,24 +99,28 @@ export class DiscoveryCache {
   }
   async invalidate() {
     // A persistent tombstone also stops a discovery already in flight from publishing stale data.
-    await this.locked(() => this.write({ format: 1, key: this.key, invalidated: randomUUID() }));
+    await this.locked(() => this.write({ format: 2, key: this.key, invalidated: randomUUID() }));
   }
   async observeIdentity(identity) {
     const { value } = await this.record();
-    if (value?.key === this.key && value.identity && !sameIdentity(value.identity, identity)) await this.invalidate();
+    if (value?.format === 2 && value.key === this.key && value.identity && !sameIdentity(value.identity, identity)) await this.invalidate();
   }
   async get() {
     const initial = await this.record();
     if (this.fresh(initial)) return initial.value.manifest;
+    if (this.loading) {
+      const result = await this.loading;
+      return replayableCatalog(result) ? result : this.get();
+    }
     if (!this.loading) this.loading = (async () => {
       const loaded = await this.load();
       if (!validPayload(loaded)) throw new Error('Invalid discovery metadata from backend');
-      if (this.ttlMs > 0) await this.locked(async () => {
+      if (this.ttlMs > 0 && replayableCatalog(loaded.manifest)) await this.locked(async () => {
         const current = await this.record();
         if (current.revision !== initial.revision) return; // Another writer or invalidation won.
         const writtenAt = this.now();
-        await this.write({ format: 1, key: this.key, writtenAt, expiresAt: writtenAt + this.ttlMs,
-          identity: loaded.identity, manifest: { tools: loaded.manifest.tools } });
+        await this.write({ format: 2, key: this.key, writtenAt, expiresAt: writtenAt + this.ttlMs,
+          identity: loaded.identity, manifest: loaded.manifest });
       });
       return loaded.manifest;
     })().finally(() => { this.loading = undefined; });

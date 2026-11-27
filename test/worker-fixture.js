@@ -13,7 +13,8 @@ let timer;
 function idle() { clearTimeout(timer); timer = setTimeout(() => { record('idle'); void server.close(); }, 1000); }
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   record('list'); idle();
-  return { tools: [{ name: config().tool, description: 'Fixture discovery metadata', inputSchema: { type: 'object', properties: { delay: { type: 'number' } } }, annotations: { readOnlyHint: true } }] };
+  return { ...config().resultFields, tools: [{ name: config().tool, description: 'Fixture discovery metadata',
+    inputSchema: { type: 'object', properties: { delay: { type: 'number' } } }, annotations: { readOnlyHint: true, ...config().extraAnnotations }, ...config().extraToolFields }] };
 });
 server.setRequestHandler(CallToolRequestSchema, async request => {
   record('call'); clearTimeout(timer);
