@@ -68,6 +68,20 @@ test('the internal host gate preserves an incoming variable of the same name', a
   const result = await client.callTool({ name: 'fixture_tool', arguments: {} });
   assert.equal(JSON.parse(result.content[0].text).hostEnv, 'original-user-value');
 });
+test('replicas share discovery despite launcher env differences while dumps and backend retain original values', async t => {
+  const s = await setup(t);
+  const firstEnv = { PATH: 'fixture-path-one', INIT_CWD: 'fixture-init-one', npm_config_local_prefix: 'fixture-prefix-one', npm_package_json: 'fixture-package-one' };
+  const secondEnv = { PATH: 'fixture-path-two', INIT_CWD: 'fixture-init-two', npm_config_local_prefix: 'fixture-prefix-two', npm_package_json: 'fixture-package-two' };
+  const first = await s.open(firstEnv); const catalog = await first.client.listTools(); await first.client.close();
+  const second = await s.open(secondEnv); assert.deepEqual(await second.client.listTools(), catalog);
+  assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
+  const result = JSON.parse((await second.client.callTool({ name: 'fixture_tool', arguments: {} })).content[0].text);
+  assert.equal(result.path, secondEnv.PATH); assert.equal(result.initCwd, secondEnv.INIT_CWD);
+  assert.equal(result.npmPrefix, secondEnv.npm_config_local_prefix); assert.equal(result.npmPackage, secondEnv.npm_package_json);
+  const startup = (await readFile(resolve(s.dir, 'cache', 'env-startup.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(startup.map(x => x.env.PATH), [firstEnv.PATH, secondEnv.PATH]);
+  assert.deepEqual(startup.map(x => x.env.INIT_CWD), [firstEnv.INIT_CWD, secondEnv.INIT_CWD]);
+});
 test('warm discovery and ping do not postpone worker idle', async t => {
   const s = await setup(t); const { client } = await s.open();
   await client.listTools();

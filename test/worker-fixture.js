@@ -24,7 +24,8 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
   }
   idle();
   record('finished');
-  return { content: [{ type: 'text', text: JSON.stringify({ callId: process.env.CODEX_TOOL_CALL_ID, hostEnv: process.env.PW_PROXY_HOST }) }] };
+  return { content: [{ type: 'text', text: JSON.stringify({ callId: process.env.CODEX_TOOL_CALL_ID, hostEnv: process.env.PW_PROXY_HOST,
+    path: process.env.PATH, initCwd: process.env.INIT_CWD, npmPrefix: process.env.npm_config_local_prefix, npmPackage: process.env.npm_package_json }) }] };
 });
 process.stdin.once('end', () => { clearTimeout(timer); void server.close(); });
 await server.connect(new StdioServerTransport()); idle();

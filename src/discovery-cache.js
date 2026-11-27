@@ -19,6 +19,8 @@ export function invocationKey({ command, args = [], cwd = process.cwd(), env = p
   const environment = new Map();
   // Node selects the first lexically sorted spelling of duplicate Windows names.
   for (const key of Object.keys(env).sort()) {
+    const upper = key.toUpperCase();
+    if (upper === 'PATH' || upper.startsWith('INIT_') || upper.startsWith('NPM_')) continue;
     const normalized = name(key);
     if (env[key] !== undefined && !ignored.has(normalized) && !environment.has(normalized)) environment.set(normalized, String(env[key]));
   }

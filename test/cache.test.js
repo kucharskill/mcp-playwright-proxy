@@ -37,6 +37,16 @@ test('cold writes complete metadata; a new cache object reads it without its loa
   assert.ok(!raw.includes('fixture-secret') && !raw.includes('API_KEY') && !raw.includes('sessionId'));
   assert.deepEqual(JSON.parse(raw).identity, payload('1').identity);
 });
+test('PATH and INIT_/NPM_ families are ignored case-insensitively only in the key', () => {
+  for (const platform of ['win32', 'linux']) {
+    const key = env => invocationKey({ ...target, env: { ...target.env, ...env } }, { platform });
+    const first = { PATH: 'one', INIT_CWD: 'one', INIT_OTHER: 'one', npm_config_local_prefix: 'one', npm_package_json: 'one', NPM_OTHER: 'one' };
+    const second = { pAtH: 'two', iNiT_cWd: 'two', init_OTHER: 'two', NpM_CONFIG_local_PREFIX: 'two', Npm_Package_Json: 'two', nPm_OTHER: 'two' };
+    assert.equal(key(first), key(second));
+    assert.equal(key(first), key({}));
+    for (const name of ['API_KEY', 'PATH_SUFFIX', 'INIT', 'NPM', 'MY_INIT_VALUE']) assert.notEqual(key({ [name]: 'changed' }), key({}));
+  }
+});
 test('TTL, old format, corrupt JSON, malformed schemas and unsupported protocol miss safely', async t => {
   let now = 1000;
   const { cache, calls } = await setup(t, { now: () => now, ttlMs: 50 });
