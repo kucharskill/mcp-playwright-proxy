@@ -18,9 +18,10 @@ export class Instances {
     return { connection, version: resolved.version };
   }
   async manifest() {
-    const { connection } = await this.connection({ mode: 'launch', headless: true, isolated: true });
+    const { connection, version } = await this.connection({ mode: 'launch', headless: true, isolated: true });
     try {
       const result = await connection.list();
+      this.catalogVersion = version;
       return { tools: [...controls, ...result.tools.map(withInstance)] };
     } finally { await connection.close(); }
   }
@@ -34,6 +35,7 @@ export class Instances {
       const { connection, version } = await this.connection(options, () => { if (item.state === 'open') void this.stop(item.instanceId, 'disconnected'); });
       item.connection = connection;
       item.version = version;
+      if (this.catalogVersion && this.catalogVersion !== version) this.changed?.();
       if (this.closed || item.state !== 'starting') { await connection.close(); throw new Error('Instance closed during startup'); }
       item.state = 'open';
       this.arm(item);
