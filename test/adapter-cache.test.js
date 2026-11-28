@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { ResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ResultSchema, ListToolsResultSchema, ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 async function setup(t) {
   const dir = resolve('.tmp', `adapter-test-${randomUUID()}`);
@@ -148,10 +148,16 @@ test('list_changed invalidates other replicas and publishes the new catalog', as
   const first = await s.open();
   await first.client.listTools(); const second = await s.open();
   await second.client.listTools();
+  let notify;
+  const changed = new Promise(resolve => { notify = resolve; });
+  first.client.setNotificationHandler(ToolListChangedNotificationSchema, () => notify());
   const updated = await first.client.callTool({ name: 'update', arguments: {} });
   assert.ok(!updated.isError, JSON.stringify(updated));
-  let result;
-  for (let i = 0; i < 200; i++) { result = await second.client.listTools(); if (result.tools[0].name === 'updated_tool') break; await sleep(25); }
+  let timer;
+  try {
+    await Promise.race([changed, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Missing catalog invalidation notification')), 10000); })]);
+  } finally { clearTimeout(timer); }
+  const result = await second.client.listTools();
   assert.equal(result.tools[0].name, 'updated_tool');
 });
 test('a changed backend identity discovered by a real call invalidates the file', async t => {
