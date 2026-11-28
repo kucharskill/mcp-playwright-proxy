@@ -10,7 +10,7 @@ const record = event => appendFileSync(initial.events, JSON.stringify({ event })
 record('start');
 const server = new Server({ name: 'fixture-worker', version: initial.version }, { capabilities: { tools: { listChanged: true } }, instructions: 'Fixture instructions' });
 let timer;
-function idle() { clearTimeout(timer); timer = setTimeout(() => { record('idle'); void server.close(); }, 1000); }
+function idle() { clearTimeout(timer); timer = setTimeout(() => { record('idle'); void server.close(); }, initial.idleMs ?? 1000); }
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   record('list'); idle();
   return { ...config().resultFields, tools: [{ name: config().tool, description: 'Fixture discovery metadata',

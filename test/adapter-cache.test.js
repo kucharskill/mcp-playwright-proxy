@@ -142,10 +142,14 @@ test('warm discovery and ping do not postpone worker idle', async t => {
   assert.equal((await s.events()).filter(x => x.event === 'start').length, 1);
 });
 test('list_changed invalidates other replicas and publishes the new catalog', async t => {
-  const s = await setup(t); const first = await s.open();
+  const s = await setup(t);
+  const config = JSON.parse(await readFile(s.file, 'utf8'));
+  await writeFile(s.file, JSON.stringify({ ...config, idleMs: 60000 }));
+  const first = await s.open();
   await first.client.listTools(); const second = await s.open();
   await second.client.listTools();
-  await first.client.callTool({ name: 'update', arguments: {} });
+  const updated = await first.client.callTool({ name: 'update', arguments: {} });
+  assert.ok(!updated.isError, JSON.stringify(updated));
   let result;
   for (let i = 0; i < 200; i++) { result = await second.client.listTools(); if (result.tools[0].name === 'updated_tool') break; await sleep(25); }
   assert.equal(result.tools[0].name, 'updated_tool');
