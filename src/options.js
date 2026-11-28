@@ -4,12 +4,14 @@ export const optionsSchema = z.object({
   browser: z.enum(['msedge', 'chrome', 'firefox', 'webkit']).optional(),
   headless: z.boolean().optional(),
   isolated: z.boolean().optional(),
+  args: z.array(z.string().min(1)).optional().describe('Additional command-line arguments passed to the browser process. Each array item is a single argument, even if it contains spaces. Available only in launch mode. Example: ["--host-resolver-rules=MAP xxx 127.0.0.1"]. Supported flags depend on the selected browser.'),
   executablePath: z.string().min(1).optional(),
   userDataDir: z.string().min(1).optional(),
   profileDirName: z.string().min(1).optional(),
   allowUnrestrictedFileAccess: z.boolean().default(false),
   idleTimeoutMs: z.number().int().min(0).max(2147483647).default(1800000),
 }).strict().superRefine((o, ctx) => {
+  if (o.mode === 'extension' && o.args !== undefined) ctx.addIssue({ code: 'custom', message: 'args applies only to launch mode' });
   if (o.mode === 'extension' && (o.headless !== undefined || o.isolated !== undefined)) ctx.addIssue({ code: 'custom', message: 'headless and isolated apply only to launch mode' });
   if (o.mode === 'extension' && o.browser && !['chrome', 'msedge'].includes(o.browser)) ctx.addIssue({ code: 'custom', message: 'Extension requires a Chromium browser' });
   if (o.isolated && o.userDataDir) ctx.addIssue({ code: 'custom', message: 'isolated and userDataDir are mutually exclusive' });

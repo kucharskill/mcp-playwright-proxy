@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { optionsSchema, upstreamArgs, withInstance, controls } from './options.js';
 import { connect } from './connection.js';
 import { resolveLatest } from './resolve.js';
@@ -14,8 +16,23 @@ export class Instances {
   async connection(options, disconnected) {
     const resolved = await this.resolve();
     if (this.closed) throw new Error('Worker is closing');
-    const connection = await this.open([resolved.entry, ...upstreamArgs(options, this.cwd)], { cwd: this.cwd, protect: options.mode !== 'extension', roots: this.roots, changed: this.changed, disconnected });
-    return { connection, version: resolved.version };
+    const args = [resolved.entry, ...upstreamArgs(options, this.cwd)];
+    let directory;
+    const cleanup = async () => { if (directory) await rm(directory, { recursive: true, force: true }); };
+    try {
+      if (options.args?.length) {
+        const parent = join(this.cwd, '.tmp', 'playwright');
+        await mkdir(parent, { recursive: true });
+        directory = await mkdtemp(join(parent, 'launch-'));
+        const configPath = join(directory, 'config.json');
+        await writeFile(configPath, JSON.stringify({ browser: { launchOptions: { args: options.args } } }), { mode: 0o600 });
+        args.push('--config', configPath);
+      }
+      const connection = await this.open(args, { cwd: this.cwd, protect: options.mode !== 'extension', roots: this.roots, changed: this.changed, disconnected });
+      const close = connection.close.bind(connection);
+      connection.close = async () => { try { await close(); } finally { await cleanup(); } };
+      return { connection, version: resolved.version };
+    } catch (error) { await cleanup(); throw error; }
   }
   async manifest() {
     const { connection, version } = await this.connection({ mode: 'launch', headless: true, isolated: true });

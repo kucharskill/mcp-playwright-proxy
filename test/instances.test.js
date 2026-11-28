@@ -112,3 +112,39 @@ test('forced stop interrupts work without waiting for the queue', async () => {
   assert.equal(stopped.state, 'closed');
   assert.equal(stopped.reason, 'forced-stop');
 });
+import { readFile, access, readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+test('browser arguments preserve boundaries in independent configs and clean up on stop/failure', async () => {
+  assert.throws(() => optionsSchema.parse({ mode: 'extension', args: [] }), /launch mode/);
+  assert.throws(() => optionsSchema.parse({ args: [1] }));
+  const { manager } = fixture();
+  const open = manager.open;
+  const paths = [];
+  const received = [];
+  manager.open = async (argv, config) => {
+    const path = argv[argv.indexOf('--config') + 1];
+    paths.push(path);
+    received.push(JSON.parse(await readFile(path, 'utf8')));
+    assert.equal(config.protect, true);
+    return open(argv, config);
+  };
+  const args = ['--host-resolver-rules=MAP xxx 127.0.0.1', '--example="a b"', '--literal=$(echo test)'];
+  try {
+    const a = await manager.start({ args });
+    await manager.start({ args: ['--disable-notifications'] });
+    assert.notEqual(paths[0], paths[1]);
+    assert.deepEqual(received[0], { browser: { launchOptions: { args } } });
+    assert.deepEqual(received[1].browser.launchOptions.args, ['--disable-notifications']);
+    await manager.stop(a.instanceId);
+    await assert.rejects(access(paths[0]), { code: 'ENOENT' });
+    await access(paths[1]);
+  } finally { await manager.close(); }
+  await assert.rejects(access(paths[1]), { code: 'ENOENT' });
+  const parent = resolve('.tmp/playwright');
+  const before = await readdir(parent);
+  manager.closed = false;
+  manager.open = async () => { throw new Error('fixture startup failure'); };
+  await assert.rejects(manager.start({ args }), /fixture startup failure/);
+  assert.deepEqual(await readdir(parent), before);
+});

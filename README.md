@@ -37,13 +37,25 @@ Start options:
 | `mode` | `launch` (default) or `extension` |
 | `browser` | `msedge`, `chrome`, `firefox`, `webkit`; launch defaults to Edge, extension follows upstream defaults |
 | `headless`, `isolated` | Launch-only settings; upstream defaults apply when omitted |
+| `args` | Launch-only array of additional browser arguments; each item is one argument, including spaces |
 | `executablePath` | Custom browser executable, including portable Chromium browsers |
 | `userDataDir` | Browser data directory; incompatible with `isolated: true` |
 | `profileDirName` | Extension-only profile directory name |
 | `allowUnrestrictedFileAccess` | Explicit upstream file-access relaxation; default false |
 | `idleTimeoutMs` | Inactivity after completed work; default 1800000 (30 minutes), 0 disables |
 
-For extension mode, omit `headless` and `isolated`. Supply credentials such as `PLAYWRIGHT_MCP_EXTENSION_TOKEN` through the MCP process environment, never tool arguments. The proxy contains no machine-specific browser paths or tokens.
+Additional browser arguments can be supplied at startup:
+
+```js
+browser_instance_start({
+  mode: "launch", browser: "msedge",
+  args: ["--host-resolver-rules=MAP xxx 127.0.0.1", "--disable-notifications"]
+})
+```
+
+Arguments are passed unchanged through a per-executor upstream configuration file under `.tmp/playwright/`, removed when the executor closes or startup fails. Flag support depends on the selected browser.
+
+For extension mode, omit `args`, `headless` and `isolated`. Supply credentials such as `PLAYWRIGHT_MCP_EXTENSION_TOKEN` through the MCP process environment, never tool arguments. The proxy contains no machine-specific browser paths or tokens.
 
 Tabs retain upstream numeric indexes and contexts retain upstream names. Operations in one executor run serially; different executors run concurrently. A sequence of selecting a tab and then clicking is not an atomic transaction: clients sharing an executor must coordinate such sequences.
 
