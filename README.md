@@ -97,15 +97,4 @@ Generated temporary files and browser output use the system temporary directory:
 
 New instances use the latest official Playwright MCP. Existing instances keep their browser state and version until closed. Reconnect your MCP client to load an updated proxy.
 
-## Development
-
-```sh
-npm ci
-node src/cli.js
-npm run check
-npm run release:prepare
-```
-
-Direct source execution uses the local worker. Set `PW_PROXY_RUNNER=local` or `latest` to choose explicitly.
-
 MIT licensed.
