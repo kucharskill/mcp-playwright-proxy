@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 export const optionsSchema = z.object({
   mode: z.enum(['launch', 'extension']).default('launch'),
   browser: z.enum(['msedge', 'chrome', 'firefox', 'webkit']).optional(),
@@ -17,9 +19,9 @@ export const optionsSchema = z.object({
   if (o.isolated && o.userDataDir) ctx.addIssue({ code: 'custom', message: 'isolated and userDataDir are mutually exclusive' });
   if (o.mode === 'launch' && o.profileDirName) ctx.addIssue({ code: 'custom', message: 'profileDirName applies only to extension mode' });
 });
-export function upstreamArgs(input, cwd) {
+export function upstreamArgs(input) {
   const o = optionsSchema.parse(input);
-  const args = ['--caps', 'devtools,vision,pdf', '--idle-timeout', '0', '--no-webmcp', '--output-dir', `${cwd}/.tmp/playwright`];
+  const args = ['--caps', 'devtools,vision,pdf', '--idle-timeout', '0', '--no-webmcp', '--output-dir', join(tmpdir(), 'playwright', 'output')];
   if (o.browser) args.push('--browser', o.browser);
   else if (o.mode === 'launch' && !o.executablePath) args.push('--browser', 'msedge');
   if (o.mode === 'extension') args.push('--extension');

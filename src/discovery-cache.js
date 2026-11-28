@@ -37,7 +37,7 @@ function validPayload(value) {
 
 /** One atomic JSON record per invocation. Only short file writes hold a lock. */
 export class DiscoveryCache {
-  constructor({ target, load, ttlMs = 600000, directory = join(tmpdir(), 'mcp-playwright-proxy', 'discovery'), ignoredEnv = ['CODEX_TOOL_CALL_ID'], now = Date.now }) {
+  constructor({ target, load, ttlMs = 600000, directory = join(tmpdir(), 'playwright', 'discovery'), ignoredEnv = ['CODEX_TOOL_CALL_ID'], now = Date.now }) {
     this.key = invocationKey(target, { ignoredEnv });
     Object.assign(this, { load, ttlMs, directory, now });
     this.path = join(directory, `${this.key}.json`);

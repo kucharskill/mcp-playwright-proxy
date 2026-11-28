@@ -20,6 +20,7 @@ test('options keep extension and launch separate; file access is explicit', () =
   assert.throws(() => optionsSchema.parse({ mode: 'extension', headless: false }));
   assert.throws(() => optionsSchema.parse({ isolated: true, userDataDir: 'x' }));
   assert.throws(() => optionsSchema.parse({ unknown: true }));
+  assert.equal(upstreamArgs({})[upstreamArgs({}).indexOf('--output-dir') + 1], join(tmpdir(), 'playwright', 'output'));
   assert.ok(!upstreamArgs({}, '/project').includes('--allow-unrestricted-file-access'));
   assert.ok(upstreamArgs({ allowUnrestrictedFileAccess: true }, '/project').includes('--allow-unrestricted-file-access'));
 });
@@ -113,7 +114,8 @@ test('forced stop interrupts work without waiting for the queue', async () => {
   assert.equal(stopped.reason, 'forced-stop');
 });
 import { readFile, access, readdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 test('browser arguments preserve boundaries in independent configs and clean up on stop/failure', async () => {
   assert.throws(() => optionsSchema.parse({ mode: 'extension', args: [] }), /launch mode/);
@@ -141,7 +143,7 @@ test('browser arguments preserve boundaries in independent configs and clean up 
     await access(paths[1]);
   } finally { await manager.close(); }
   await assert.rejects(access(paths[1]), { code: 'ENOENT' });
-  const parent = resolve('.tmp/playwright');
+  const parent = join(tmpdir(), 'playwright');
   const before = await readdir(parent);
   manager.closed = false;
   manager.open = async () => { throw new Error('fixture startup failure'); };

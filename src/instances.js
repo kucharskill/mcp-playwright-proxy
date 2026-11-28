@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { optionsSchema, upstreamArgs, withInstance, controls } from './options.js';
 import { connect } from './connection.js';
 import { resolveLatest } from './resolve.js';
@@ -21,7 +22,7 @@ export class Instances {
     const cleanup = async () => { if (directory) await rm(directory, { recursive: true, force: true }); };
     try {
       if (options.args?.length) {
-        const parent = join(this.cwd, '.tmp', 'playwright');
+        const parent = join(tmpdir(), 'playwright');
         await mkdir(parent, { recursive: true });
         directory = await mkdtemp(join(parent, 'launch-'));
         const configPath = join(directory, 'config.json');

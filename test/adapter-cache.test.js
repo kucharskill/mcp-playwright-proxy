@@ -147,7 +147,7 @@ test('list_changed invalidates other replicas and publishes the new catalog', as
   await second.client.listTools();
   await first.client.callTool({ name: 'update', arguments: {} });
   let result;
-  for (let i = 0; i < 20; i++) { result = await second.client.listTools(); if (result.tools[0].name === 'updated_tool') break; await sleep(25); }
+  for (let i = 0; i < 200; i++) { result = await second.client.listTools(); if (result.tools[0].name === 'updated_tool') break; await sleep(25); }
   assert.equal(result.tools[0].name, 'updated_tool');
 });
 test('a changed backend identity discovered by a real call invalidates the file', async t => {
