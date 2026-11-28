@@ -28,6 +28,7 @@ test('release queue keeps every source commit including documentation and retrie
     const outside = commit('workflow.yml','Outside package allowlist');
     const latest = commit('code.js','Runtime change');
     assert.deepEqual(sourceQueue(git,baseline,'main'),[docs,outside,latest]);
+    assert.deepEqual(sourceQueue(git,baseline,outside),[docs,outside]);
     git(['tag',`release-source/${docs}`,docs]);
     // An assignment is not completion: the same queue is revisited after failure.
     assert.deepEqual(sourceQueue(git,baseline,'main'),[docs,outside,latest]);

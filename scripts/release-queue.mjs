@@ -29,8 +29,9 @@ async function main() {
   git(['fetch', 'origin', 'main', '--tags']);
   git(['config', 'user.name', 'github-actions[bot]']);
   git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
+  if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw new Error('Missing workflow source commit');
   const baseline = git(['rev-parse','v0.1.7^{commit}']);
-  const sources = sourceQueue(git, baseline, 'origin/main');
+  const sources = sourceQueue(git, baseline, process.env.GITHUB_SHA);
   const root = process.cwd();
   mkdirSync('.tmp', { recursive: true });
   for (const source of sources) {
